@@ -103,6 +103,12 @@ export const PRODUCTION_ROADMAP: RoadmapPhase[] = [
         text: 'Build State Machine (Locomotion -> JumpStart -> JumpLoop -> JumpEnd)',
         technicalDetails: 'Transition to JumpStart when IsFalling = True. Transition to JumpEnd when IsFalling = False. Return to Locomotion on Time Remaining Ratio < 0.1.',
         ue5PathOrMenu: 'ABP_Explorer > AnimGraph > State Machine'
+      },
+      {
+        id: 'p3-4',
+        text: 'Implement AnimNotify Footstep System & Physical Materials',
+        technicalDetails: 'Create AN_Footstep AnimNotify class. Add notify to Walk/Run animation timelines at heel strikes with FootSocketName (foot_l, foot_r). In Character BP, perform downward LineTrace with bReturnPhysicalMaterial=True, switch on EPhysicalSurface (Grass, Stone, Water, Wood), and play pitch-randomized sound cues.',
+        ue5PathOrMenu: 'Animation Sequences > Notifies Track & BP_WildlandsCharacter'
       }
     ]
   },

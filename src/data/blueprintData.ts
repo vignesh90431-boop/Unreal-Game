@@ -852,5 +852,290 @@ End Object`,
         commonMistake: 'Without DoOnce, walking back and forth through a doorway repeatedly gives duplicate XP and spam-plays the audio fanfare.'
       }
     ]
+  },
+  {
+    id: 'footstep-physmat',
+    name: 'AnimNotify Footsteps & Physical Materials',
+    systemName: 'Audio & Animation',
+    blueprintClass: 'BP_WildlandsCharacter & AN_Footstep',
+    parentClass: 'ACharacter & UAnimNotify',
+    description: 'Animation notify-triggered footstep system in the Character Blueprint. Performs a downward line trace beneath foot sockets, queries the underlying Physical Material, and plays randomized surface-specific sound cues (Grass, Stone, Water, Wood) with pitch modulation and surface particles.',
+    ue5ClipboardText: `Begin Object Class=/Script/BlueprintGraph.K2Node_CustomEvent Name="K2Node_CustomEvent_PlayFootstep"
+   CustomFunctionName="PlayFootstepSound"
+   NodePosX=60
+   NodePosY=120
+   NodeGuid=F1E2D3C4B5A67890
+End Object
+Begin Object Class=/Script/BlueprintGraph.K2Node_CallFunction Name="K2Node_CallFunction_GetSocketLoc"
+   FunctionReference=(MemberParent=Class'"/Script/Engine.SceneComponent"',MemberName="GetSocketLocation")
+   NodePosX=320
+   NodePosY=240
+   NodeGuid=A2B3C4D5E6F70123
+End Object
+Begin Object Class=/Script/BlueprintGraph.K2Node_CallFunction Name="K2Node_CallFunction_LineTrace"
+   FunctionReference=(MemberParent=Class'"/Script/Engine.KismetSystemLibrary"',MemberName="LineTraceSingle")
+   bReturnPhysicalMaterial=True
+   NodePosX=620
+   NodePosY=120
+   NodeGuid=B3C4D5E6F70123A4
+End Object
+Begin Object Class=/Script/BlueprintGraph.K2Node_CallFunction Name="K2Node_CallFunction_GetSurfaceType"
+   FunctionReference=(MemberParent=Class'"/Script/Engine.GameplayStatics"',MemberName="GetSurfaceType")
+   NodePosX=1060
+   NodePosY=280
+   NodeGuid=C4D5E6F70123A4B5
+End Object
+Begin Object Class=/Script/BlueprintGraph.K2Node_SwitchEnum Name="K2Node_SwitchEnum_Surface"
+   Enum=Enum'"/Script/PhysicsCore.EPhysicalSurface"'
+   NodePosX=1340
+   NodePosY=120
+   NodeGuid=D5E6F70123A4B5C6
+End Object
+Begin Object Class=/Script/BlueprintGraph.K2Node_CallFunction Name="K2Node_CallFunction_PlaySoundAtLoc"
+   FunctionReference=(MemberParent=Class'"/Script/Engine.GameplayStatics"',MemberName="PlaySoundAtLocation")
+   NodePosX=1700
+   NodePosY=120
+   NodeGuid=E6F70123A4B5C6D7
+End Object`,
+    nodes: [
+      {
+        id: 'node-event-footstep',
+        title: 'Custom Event: PlayFootstepSound',
+        category: 'Event',
+        description: 'Dispatched by AnimNotify_Footstep in the Explorer Run/Walk animations.',
+        subtext: 'Input: FootSocketName (foot_l / foot_r)',
+        x: 60,
+        y: 120,
+        ue5Equivalent: 'Custom Event (FootSocketName: FName)',
+        tips: 'Call this directly from AN_Footstep::Received_Notify in your AnimNotify Blueprint class.',
+        inputs: [],
+        outputs: [
+          { id: 'foot-exec-out', name: 'Exec', type: 'exec', isInput: false },
+          { id: 'foot-socket-name', name: 'FootSocketName', type: 'string', isInput: false, value: 'foot_l' }
+        ]
+      },
+      {
+        id: 'node-get-mesh',
+        title: 'Get Mesh (CharacterMesh)',
+        category: 'Pure',
+        description: 'Returns the SkeletalMeshComponent holding the foot sockets.',
+        x: 60,
+        y: 300,
+        ue5Equivalent: 'ACharacter::GetMesh',
+        inputs: [],
+        outputs: [
+          { id: 'mesh-out', name: 'Mesh Component', type: 'object', isInput: false }
+        ]
+      },
+      {
+        id: 'node-get-socket-loc',
+        title: 'Get Socket Location',
+        category: 'Pure',
+        description: 'Extracts exact world coordinates of foot_l or foot_r bones at impact.',
+        x: 320,
+        y: 240,
+        ue5Equivalent: 'USceneComponent::GetSocketLocation',
+        inputs: [
+          { id: 'sock-mesh-in', name: 'Target', type: 'object', isInput: true },
+          { id: 'sock-name-in', name: 'Socket Name', type: 'string', isInput: true }
+        ],
+        outputs: [
+          { id: 'sock-loc-out', name: 'Return Value', type: 'vector', isInput: false }
+        ]
+      },
+      {
+        id: 'node-calc-trace-range',
+        title: 'Start = Loc + 20Z, End = Loc - 50Z',
+        category: 'Pure',
+        description: 'Offsets downwards from the foot bone through the capsule floor to strike terrain.',
+        x: 320,
+        y: 420,
+        ue5Equivalent: 'Start = Loc + (0,0,20) | End = Loc - (0,0,50)',
+        inputs: [
+          { id: 'range-loc-in', name: 'Socket Loc', type: 'vector', isInput: true }
+        ],
+        outputs: [
+          { id: 'range-start-out', name: 'Trace Start', type: 'vector', isInput: false },
+          { id: 'range-end-out', name: 'Trace End', type: 'vector', isInput: false }
+        ]
+      },
+      {
+        id: 'node-line-trace-physmat',
+        title: 'Line Trace By Channel (bReturnPhysMat = TRUE)',
+        category: 'Function',
+        description: 'Traces down to ground collision with bReturnPhysicalMaterial enabled to identify surface type.',
+        x: 620,
+        y: 120,
+        ue5Equivalent: 'UKismetSystemLibrary::LineTraceSingle (bTraceComplex=False, bReturnPhysicalMaterial=True)',
+        tips: 'CRITICAL: bReturnPhysicalMaterial MUST be checked, or Phys Mat will return NULL!',
+        inputs: [
+          { id: 'trace-exec-in', name: 'Exec', type: 'exec', isInput: true },
+          { id: 'trace-start-in', name: 'Start', type: 'vector', isInput: true },
+          { id: 'trace-end-in', name: 'End', type: 'vector', isInput: true }
+        ],
+        outputs: [
+          { id: 'trace-exec-out', name: 'Then', type: 'exec', isInput: false },
+          { id: 'trace-hit-out', name: 'Out Hit', type: 'struct', isInput: false },
+          { id: 'trace-hit-bool', name: 'Blocking Hit', type: 'bool', isInput: false }
+        ]
+      },
+      {
+        id: 'node-break-hit-physmat',
+        title: 'Break Hit Result (Extract PhysMat)',
+        category: 'Pure',
+        description: 'Unpacks the hit actor, impact point, impact normal, and Physical Material reference.',
+        x: 880,
+        y: 240,
+        ue5Equivalent: 'Break HitResult (PhysMat, Location, Normal)',
+        inputs: [
+          { id: 'break-hit-in', name: 'Hit Result', type: 'struct', isInput: true }
+        ],
+        outputs: [
+          { id: 'hit-physmat-out', name: 'Phys Mat', type: 'object', isInput: false },
+          { id: 'hit-impact-loc', name: 'Impact Point', type: 'vector', isInput: false },
+          { id: 'hit-impact-norm', name: 'Impact Normal', type: 'vector', isInput: false }
+        ]
+      },
+      {
+        id: 'node-get-surface-type',
+        title: 'Get Surface Type',
+        category: 'Pure',
+        description: 'Converts UPhysicalMaterial into the project EPhysicalSurface enum.',
+        x: 1080,
+        y: 280,
+        ue5Equivalent: 'UGameplayStatics::GetSurfaceType',
+        inputs: [
+          { id: 'surf-physmat-in', name: 'Physical Material', type: 'object', isInput: true }
+        ],
+        outputs: [
+          { id: 'surf-type-out', name: 'Surface Type', type: 'string', isInput: false }
+        ]
+      },
+      {
+        id: 'node-switch-surface',
+        title: 'Switch on EPhysicalSurface',
+        category: 'FlowControl',
+        description: 'Branches execution to play distinct sound cues based on the ground struck.',
+        x: 1320,
+        y: 120,
+        ue5Equivalent: 'Switch on EPhysicalSurface',
+        inputs: [
+          { id: 'switch-exec-in', name: 'Exec', type: 'exec', isInput: true },
+          { id: 'switch-selection', name: 'Selection', type: 'string', isInput: true }
+        ],
+        outputs: [
+          { id: 'switch-grass', name: 'SurfaceType_Grass', type: 'exec', isInput: false },
+          { id: 'switch-stone', name: 'SurfaceType_Stone', type: 'exec', isInput: false },
+          { id: 'switch-water', name: 'SurfaceType_Water', type: 'exec', isInput: false },
+          { id: 'switch-wood', name: 'SurfaceType_Wood', type: 'exec', isInput: false },
+          { id: 'switch-default', name: 'Default', type: 'exec', isInput: false }
+        ]
+      },
+      {
+        id: 'node-random-pitch',
+        title: 'Random Float in Range (0.92, 1.08)',
+        category: 'Pure',
+        description: 'Prevents repetitive audio fatigue by applying subtle natural pitch modulation per step.',
+        x: 1320,
+        y: 380,
+        ue5Equivalent: 'UKismetMathLibrary::RandomFloatInRange(0.92, 1.08)',
+        inputs: [],
+        outputs: [
+          { id: 'rand-pitch-out', name: 'Return Value', type: 'float', isInput: false, value: 0.98 }
+        ]
+      },
+      {
+        id: 'node-play-sound-at-loc',
+        title: 'Play Sound at Location',
+        category: 'Function',
+        description: 'Plays 3D spatialized footstep audio cue with pitch jitter at the foot impact point.',
+        x: 1680,
+        y: 120,
+        ue5Equivalent: 'UGameplayStatics::PlaySoundAtLocation',
+        tips: 'Attenuation settings ensure footsteps diminish realistically with camera distance.',
+        inputs: [
+          { id: 'play-exec-in', name: 'Exec', type: 'exec', isInput: true },
+          { id: 'play-sound-in', name: 'Sound Cue', type: 'object', isInput: true },
+          { id: 'play-loc-in', name: 'Location', type: 'vector', isInput: true },
+          { id: 'play-pitch-in', name: 'Pitch Multiplier', type: 'float', isInput: true, value: 1.0 }
+        ],
+        outputs: [
+          { id: 'play-exec-out', name: 'Then', type: 'exec', isInput: false }
+        ]
+      },
+      {
+        id: 'node-spawn-particle',
+        title: 'Spawn System at Location (Surface Dust/Splash)',
+        category: 'Function',
+        description: 'Spawns a small Niagara impact burst (grass debris, stone dust puff, water splash ripple).',
+        x: 1960,
+        y: 120,
+        ue5Equivalent: 'UNiagaraFunctionLibrary::SpawnSystemAtLocation',
+        inputs: [
+          { id: 'spawn-exec-in', name: 'Exec', type: 'exec', isInput: true },
+          { id: 'spawn-loc-in', name: 'Location', type: 'vector', isInput: true },
+          { id: 'spawn-rot-in', name: 'Rotation (from Hit Normal)', type: 'rotator', isInput: true }
+        ],
+        outputs: [
+          { id: 'spawn-exec-out', name: 'Then', type: 'exec', isInput: false }
+        ]
+      }
+    ],
+    connections: [
+      { fromNodeId: 'node-event-footstep', fromPinId: 'foot-exec-out', toNodeId: 'node-line-trace-physmat', toPinId: 'trace-exec-in', type: 'exec' },
+      { fromNodeId: 'node-get-mesh', fromPinId: 'mesh-out', toNodeId: 'node-get-socket-loc', toPinId: 'sock-mesh-in', type: 'object' },
+      { fromNodeId: 'node-event-footstep', fromPinId: 'foot-socket-name', toNodeId: 'node-get-socket-loc', toPinId: 'sock-name-in', type: 'string' },
+      { fromNodeId: 'node-get-socket-loc', fromPinId: 'sock-loc-out', toNodeId: 'node-calc-trace-range', toPinId: 'range-loc-in', type: 'vector' },
+      { fromNodeId: 'node-calc-trace-range', fromPinId: 'range-start-out', toNodeId: 'node-line-trace-physmat', toPinId: 'trace-start-in', type: 'vector' },
+      { fromNodeId: 'node-calc-trace-range', fromPinId: 'range-end-out', toNodeId: 'node-line-trace-physmat', toPinId: 'trace-end-in', type: 'vector' },
+      { fromNodeId: 'node-line-trace-physmat', fromPinId: 'trace-exec-out', toNodeId: 'node-switch-surface', toPinId: 'switch-exec-in', type: 'exec' },
+      { fromNodeId: 'node-line-trace-physmat', fromPinId: 'trace-hit-out', toNodeId: 'node-break-hit-physmat', toPinId: 'break-hit-in', type: 'struct' },
+      { fromNodeId: 'node-break-hit-physmat', fromPinId: 'hit-physmat-out', toNodeId: 'node-get-surface-type', toPinId: 'surf-physmat-in', type: 'object' },
+      { fromNodeId: 'node-get-surface-type', fromPinId: 'surf-type-out', toNodeId: 'node-switch-surface', toPinId: 'switch-selection', type: 'string' },
+      { fromNodeId: 'node-switch-surface', fromPinId: 'switch-grass', toNodeId: 'node-play-sound-at-loc', toPinId: 'play-exec-in', type: 'exec' },
+      { fromNodeId: 'node-switch-surface', fromPinId: 'switch-stone', toNodeId: 'node-play-sound-at-loc', toPinId: 'play-exec-in', type: 'exec' },
+      { fromNodeId: 'node-switch-surface', fromPinId: 'switch-water', toNodeId: 'node-play-sound-at-loc', toPinId: 'play-exec-in', type: 'exec' },
+      { fromNodeId: 'node-break-hit-physmat', fromPinId: 'hit-impact-loc', toNodeId: 'node-play-sound-at-loc', toPinId: 'play-loc-in', type: 'vector' },
+      { fromNodeId: 'node-random-pitch', fromPinId: 'rand-pitch-out', toNodeId: 'node-play-sound-at-loc', toPinId: 'play-pitch-in', type: 'float' },
+      { fromNodeId: 'node-play-sound-at-loc', fromPinId: 'play-exec-out', toNodeId: 'node-spawn-particle', toPinId: 'spawn-exec-in', type: 'exec' },
+      { fromNodeId: 'node-break-hit-physmat', fromPinId: 'hit-impact-loc', toNodeId: 'node-spawn-particle', toPinId: 'spawn-loc-in', type: 'vector' }
+    ],
+    walkthrough: [
+      {
+        stepNumber: 1,
+        title: 'Define Physical Surface Types in Project Settings',
+        action: 'Go to Edit > Project Settings > Engine > Physics > Physical Surface. Name SurfaceType1: Grass, SurfaceType2: Stone, SurfaceType3: Water, SurfaceType4: Wood.',
+        nodesInvolved: ['EPhysicalSurface', 'Get Surface Type'],
+        commonMistake: 'Leaving surface names blank in Project Settings causes Switch on EPhysicalSurface to only show Default.'
+      },
+      {
+        stepNumber: 2,
+        title: 'Create Physical Material Assets & Assign to Materials',
+        action: 'In Content Browser, Right Click > Physics > Physical Material. Create PM_Grass, PM_Stone, PM_Water, PM_Wood. In each asset, assign its corresponding Surface Type. Then open your terrain and ruin materials, and set the Phys Material slot in the Details panel.',
+        nodesInvolved: ['UPhysicalMaterial', 'Landscape Layer Info'],
+        commonMistake: 'Forgetting to set Physical Material on Landscape Layer Infos (e.g. Grass_LayerInfo) causes terrain hits to always return Default instead of Grass.'
+      },
+      {
+        stepNumber: 3,
+        title: 'Create AN_Footstep AnimNotify Blueprint',
+        action: 'Right click in Content Browser > Blueprints > Blueprint Class > search "AnimNotify". Name it AN_Footstep. Add a public variable FootSocketName (Name, default "foot_l"). Override Received_Notify: Cast MeshOwner to BP_WildlandsCharacter and call PlayFootstepSound(FootSocketName).',
+        nodesInvolved: ['UAnimNotify', 'Received_Notify'],
+        commonMistake: 'Hardcoding left foot only. Using a FootSocketName parameter allows one notify class to service both foot_l and foot_r.'
+      },
+      {
+        stepNumber: 4,
+        title: 'Add Notifies to Animation Sequences at Heel Strikes',
+        action: 'Open MF_Walk_Fwd, MF_Run_Fwd, and MF_Sprint_Fwd animation sequences. Scrub the timeline to the exact frame where the character\'s heel contacts the floor. Right-click the Notifies track > Add Notify > AN_Footstep. Set FootSocketName to foot_l or foot_r.',
+        nodesInvolved: ['Animation Sequence Track', 'Notifies'],
+        commonMistake: 'Placing notifies at arbitrary time intervals rather than the exact visual contact frame, causing audio sync slippage.'
+      },
+      {
+        stepNumber: 5,
+        title: 'Configure Line Trace with bReturnPhysicalMaterial',
+        action: 'In BP_WildlandsCharacter, place LineTraceByChannel. Connect Start and End vectors. In the Details panel, expand Advanced Pins and ensure bReturnPhysicalMaterial is TRUE.',
+        nodesInvolved: ['LineTraceByChannel', 'Break HitResult'],
+        commonMistake: 'bReturnPhysicalMaterial defaults to FALSE in Unreal Engine. If left false, Hit.PhysMaterial is always empty!'
+      }
+    ]
   }
 ];

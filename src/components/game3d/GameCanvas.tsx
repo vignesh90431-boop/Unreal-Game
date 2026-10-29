@@ -50,6 +50,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const [currentFps, setCurrentFps] = useState<number>(60);
   const [graphicsPreset, setGraphicsPreset] = useState<'rtx3050' | 'cinematic' | 'low'>('rtx3050');
   const [playerMovementState, setPlayerMovementState] = useState<string>('Idle');
+  const [isPointerLocked, setIsPointerLocked] = useState<boolean>(false);
+  const [activeKeys, setActiveKeys] = useState<{ [key: string]: boolean }>({});
+  const [footstepTelemetry, setFootstepTelemetry] = useState<{
+    surface: 'Grass' | 'Stone' | 'Water' | 'Wood';
+    physMat: string;
+    foot: 'Left' | 'Right';
+    pitch: number;
+  } | null>(null);
 
   // Relic and chest state tracking
   const relicCollectedRef = useRef(false);
@@ -63,9 +71,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Keyboard state
   const keysRef = useRef<{ [key: string]: boolean }>({});
 
+  const setVirtualKey = (code: string, isDown: boolean) => {
+    keysRef.current[code] = isDown;
+    setActiveKeys((prev) => ({ ...prev, [code]: isDown }));
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent browser scrolling on arrow keys and spacebar
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
+      }
+
       keysRef.current[e.code] = true;
+      setActiveKeys((prev) => ({ ...prev, [e.code]: true }));
+
       if (e.code === 'KeyE' && currentActionRef.current) {
         currentActionRef.current();
       }
@@ -79,8 +99,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         setHudCollapsed((prev) => !prev);
       }
     };
+
     const handleKeyUp = (e: KeyboardEvent) => {
       keysRef.current[e.code] = false;
+      setActiveKeys((prev) => ({ ...prev, [e.code]: false }));
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -510,34 +532,90 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let cameraDistance = 5.2;
     let isGrounded = true;
     let verticalVelocity = 0;
-    let footstepTimer = 0;
+    let walkPhase = 0;
+    let leftFootNotifyFired = false;
+    let rightFootNotifyFired = false;
 
-    // Mouse look drag control
+    // Surface impact dust/splash particle system (Niagara simulation)
+    const particleGeo = new THREE.RingGeometry(0.04, 0.22, 12);
+    particleGeo.rotateX(-Math.PI / 2);
+    const particlePool: { mesh: THREE.Mesh; life: number; maxLife: number; surface: string }[] = [];
+    const particleMat = new THREE.MeshBasicMaterial({
+      color: 0x88aa66,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    for (let i = 0; i < 10; i++) {
+      const pMesh = new THREE.Mesh(particleGeo, particleMat.clone());
+      pMesh.visible = false;
+      scene.add(pMesh);
+      particlePool.push({ mesh: pMesh, life: 0, maxLife: 0.35, surface: 'Grass' });
+    }
+
+    let particleIdx = 0;
+    function spawnFootstepParticle(x: number, y: number, z: number, surface: 'Grass' | 'Stone' | 'Water' | 'Wood') {
+      const p = particlePool[particleIdx];
+      particleIdx = (particleIdx + 1) % particlePool.length;
+      p.mesh.position.set(x, y + 0.04, z);
+      p.mesh.scale.set(0.6, 0.6, 0.6);
+      p.life = p.maxLife;
+      p.surface = surface;
+      p.mesh.visible = true;
+
+      const mat = p.mesh.material as THREE.MeshBasicMaterial;
+      if (surface === 'Stone') mat.color.setHex(0xcccccc);
+      else if (surface === 'Water') mat.color.setHex(0x55ccff);
+      else if (surface === 'Wood') mat.color.setHex(0xaa7744);
+      else mat.color.setHex(0x77aa55);
+    }
+
+    // Mouse look and camera orbit controls
     let isDragging = false;
     let prevMouseX = 0;
     let prevMouseY = 0;
 
     const onMouseDown = (e: MouseEvent) => {
-      // Allow drag rotation anywhere on canvas
+      // Don't drag if clicking UI buttons
+      if ((e.target as HTMLElement).closest('button, input, select, textarea')) return;
       isDragging = true;
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
     };
+
     const onMouseMove = (e: MouseEvent) => {
+      // 1. If Pointer is locked (Seamless PC Game Free Mouse Look while running)
+      if (document.pointerLockElement === canvasElem) {
+        cameraYaw -= e.movementX * 0.0032;
+        cameraPitch = Math.max(-0.25, Math.min(1.15, cameraPitch + e.movementY * 0.0032));
+        return;
+      }
+
+      // 2. Click & drag rotation
       if (!isDragging) return;
       const dx = e.clientX - prevMouseX;
       const dy = e.clientY - prevMouseY;
       cameraYaw -= dx * 0.0055;
-      cameraPitch = Math.max(-0.2, Math.min(1.1, cameraPitch + dy * 0.0055));
+      cameraPitch = Math.max(-0.25, Math.min(1.15, cameraPitch + dy * 0.0055));
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
     };
+
     const onMouseUp = () => {
       isDragging = false;
     };
+
     const onWheel = (e: WheelEvent) => {
       cameraDistance = Math.max(2.8, Math.min(9.0, cameraDistance + e.deltaY * 0.005));
     };
+
+    const onPointerLockChange = () => {
+      setIsPointerLocked(document.pointerLockElement === canvasElem);
+    };
+
+    document.addEventListener('pointerlockchange', onPointerLockChange);
 
     const canvasElem = renderer.domElement;
     canvasElem.addEventListener('mousedown', onMouseDown);
@@ -575,59 +653,131 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         lastFpsUpdate = now;
       }
 
-      // 1. Process Input Locomotion
-      let moveX = 0;
-      let moveZ = 0;
-      if (keysRef.current['KeyW'] || keysRef.current['ArrowUp']) moveZ -= 1;
-      if (keysRef.current['KeyS'] || keysRef.current['ArrowDown']) moveZ += 1;
-      if (keysRef.current['KeyA'] || keysRef.current['ArrowLeft']) moveX -= 1;
-      if (keysRef.current['KeyD'] || keysRef.current['ArrowRight']) moveX += 1;
+      // 1. Process Input Locomotion (Forward/Backward and Side Strafe)
+      const forwardInput = (keysRef.current['KeyW'] || keysRef.current['ArrowUp'] ? 1 : 0) -
+                           (keysRef.current['KeyS'] || keysRef.current['ArrowDown'] ? 1 : 0);
+      const rightInput = (keysRef.current['KeyD'] || keysRef.current['ArrowRight'] ? 1 : 0) -
+                         (keysRef.current['KeyA'] || keysRef.current['ArrowLeft'] ? 1 : 0);
 
-      const isSprinting = !!keysRef.current['ShiftLeft'] || !!keysRef.current['ShiftRight'];
-      const isCrouching = !!keysRef.current['KeyC'];
-      const wantsJump = !!keysRef.current['Space'];
+      // Keyboard camera turn (Q / E or on-screen camera buttons)
+      if (keysRef.current['KeyQ'] || keysRef.current['CamLeft']) {
+        cameraYaw += delta * 2.2;
+      }
+      if (keysRef.current['KeyE_Cam'] || keysRef.current['CamRight']) {
+        cameraYaw -= delta * 2.2;
+      }
+
+      const isSprinting = !!keysRef.current['ShiftLeft'] || !!keysRef.current['ShiftRight'] || !!keysRef.current['SprintBtn'];
+      const isCrouching = !!keysRef.current['KeyC'] || !!keysRef.current['CrouchBtn'];
+      const wantsJump = !!keysRef.current['Space'] || !!keysRef.current['JumpBtn'];
 
       let moveSpeed = 4.8;
       if (isSprinting) moveSpeed = 8.5;
       if (isCrouching) moveSpeed = 2.4;
 
-      // Normalize movement direction
-      const inputVec = new THREE.Vector2(moveX, moveZ);
-      const isMoving = inputVec.lengthSq() > 0.01;
-      if (isMoving) {
-        inputVec.normalize();
-      }
-
-      // Convert input relative to camera yaw
+      const isMoving = forwardInput !== 0 || rightInput !== 0;
       const moveDir = new THREE.Vector3();
-      if (isMoving) {
-        const sin = Math.sin(cameraYaw);
-        const cos = Math.cos(cameraYaw);
-        moveDir.x = inputVec.x * cos - inputVec.y * sin;
-        moveDir.z = inputVec.x * sin + inputVec.y * cos;
 
-        // Smoothly rotate character to face movement direction
+      if (isMoving) {
+        // Normalize diagonal inputs so moving at an angle is smooth and not faster
+        const len = Math.hypot(forwardInput, rightInput);
+        const normFwd = forwardInput / len;
+        const normRight = rightInput / len;
+
+        // UE5 Camera-Relative Basis Vectors (flat along ground plane)
+        // Camera is placed at (+sin(yaw)*dist, +cos(yaw)*dist), pointing toward player target
+        // Therefore, Forward direction pointing away from camera is (-sin(yaw), -cos(yaw))
+        // And Right direction is (+cos(yaw), -sin(yaw))
+        const fwdX = -Math.sin(cameraYaw);
+        const fwdZ = -Math.cos(cameraYaw);
+        const rgtX = Math.cos(cameraYaw);
+        const rgtZ = -Math.sin(cameraYaw);
+
+        moveDir.x = fwdX * normFwd + rgtX * normRight;
+        moveDir.z = fwdZ * normFwd + rgtZ * normRight;
+
+        // Smoothly rotate character to face travel direction
         const targetYaw = Math.atan2(moveDir.x, moveDir.z);
-        playerYaw = THREE.MathUtils.damp(playerYaw, targetYaw, 10, delta);
+        playerYaw = THREE.MathUtils.damp(playerYaw, targetYaw, 12, delta);
         playerGroup.rotation.y = playerYaw;
 
-        // Footstep sounds
-        footstepTimer += delta * (isSprinting ? 1.6 : 1.0);
-        if (footstepTimer > 0.42 && isGrounded) {
-          soundManager.playFootstep(isSprinting);
-          footstepTimer = 0;
+        // Physical Material query beneath player collision capsule
+        const px = playerGroup.position.x;
+        const pz = playerGroup.position.z;
+        const py = playerGroup.position.y;
+
+        let currentSurface: 'Grass' | 'Stone' | 'Water' | 'Wood' = 'Grass';
+        let physMatName = 'PM_Grass (SurfaceType1)';
+        // Check if within Ancient Temple Stone platform (templeGroup at x: 18, z: -12, 18x18 platform)
+        if (Math.abs(px - 18) <= 9.2 && Math.abs(pz - (-12)) <= 9.2) {
+          currentSurface = 'Stone';
+          physMatName = 'PM_GraniteRuin (SurfaceType2)';
+        } else if (py <= -0.9 || (Math.abs(pz) <= 5.5 && Math.abs(px) <= 65)) {
+          currentSurface = 'Water';
+          physMatName = 'PM_RiverWater (SurfaceType3)';
+        } else if (Math.hypot(px - (-14), pz - 10) <= 4.2) {
+          currentSurface = 'Wood';
+          physMatName = 'PM_CampPlanks (SurfaceType4)';
         }
 
-        // Leg walking cycle swing
-        const walkCycle = Math.sin(clock.getElapsedTime() * (isSprinting ? 14 : 9));
+        // Leg walking cycle swing (Locomotion Animation Track)
+        walkPhase += delta * (isSprinting ? 14 : 9);
+        const walkCycle = Math.sin(walkPhase);
         leftLeg.rotation.x = walkCycle * 0.45;
         rightLeg.rotation.x = -walkCycle * 0.45;
+
+        // Animation Notify Event Triggers (AN_Footstep_L / AN_Footstep_R at heel contact)
+        if (isGrounded) {
+          if (walkCycle > 0.45) {
+            if (!leftFootNotifyFired) {
+              leftFootNotifyFired = true;
+              rightFootNotifyFired = false;
+              soundManager.playSurfaceFootstep(currentSurface, isSprinting, 'Left');
+              const pitchVal = Math.round((0.92 + Math.random() * 0.16) * 100) / 100;
+              setFootstepTelemetry({
+                surface: currentSurface,
+                physMat: physMatName,
+                foot: 'Left',
+                pitch: pitchVal,
+              });
+              spawnFootstepParticle(px - 0.22, py, pz, currentSurface);
+            }
+          } else if (walkCycle < -0.45) {
+            if (!rightFootNotifyFired) {
+              rightFootNotifyFired = true;
+              leftFootNotifyFired = false;
+              soundManager.playSurfaceFootstep(currentSurface, isSprinting, 'Right');
+              const pitchVal = Math.round((0.92 + Math.random() * 0.16) * 100) / 100;
+              setFootstepTelemetry({
+                surface: currentSurface,
+                physMat: physMatName,
+                foot: 'Right',
+                pitch: pitchVal,
+              });
+              spawnFootstepParticle(px + 0.22, py, pz, currentSurface);
+            }
+          }
+        }
 
         setPlayerMovementState(isSprinting ? 'Sprinting' : isCrouching ? 'Crouching' : 'Jogging');
       } else {
         leftLeg.rotation.x = THREE.MathUtils.damp(leftLeg.rotation.x, 0, 8, delta);
         rightLeg.rotation.x = THREE.MathUtils.damp(rightLeg.rotation.x, 0, 8, delta);
         setPlayerMovementState(isCrouching ? 'Crouched' : 'Idle');
+        leftFootNotifyFired = false;
+        rightFootNotifyFired = false;
+      }
+
+      // Update active surface particle rings
+      for (const p of particlePool) {
+        if (p.life > 0) {
+          p.life -= delta;
+          const progress = 1 - p.life / p.maxLife;
+          const s = 0.6 + progress * 1.5;
+          p.mesh.scale.set(s, s, s);
+          (p.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - progress) * 0.6;
+          if (p.life <= 0) p.mesh.visible = false;
+        }
       }
 
       // Apply horizontal velocity with smooth acceleration
@@ -840,6 +990,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     return () => {
       cancelAnimationFrame(frameId);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
       canvasElem.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -851,6 +1002,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
   }, [onInteractRelic, onOpenChest, onTalkNpc, onDiscoverLandmark]);
+
+  const togglePointerLock = () => {
+    const canvas = mountRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    if (document.pointerLockElement === canvas) {
+      document.exitPointerLock?.();
+    } else {
+      try {
+        canvas.requestPointerLock?.();
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   return (
     <div className="relative w-full h-full select-none overflow-hidden bg-zinc-950 font-sans">
@@ -884,8 +1049,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         )}
       </div>
 
-      {/* Top Right: Hardware & Diagnostic Mini Stats */}
-      <div className="absolute top-4 right-4 z-20 pointer-events-none flex items-center gap-2">
+      {/* Top Right: Hardware & AnimNotify Audio Telemetry */}
+      <div className="absolute top-4 right-4 z-20 pointer-events-none flex flex-col items-end gap-1.5">
         <div className="px-2.5 py-1 bg-zinc-900/85 border border-zinc-800 rounded text-xs font-mono text-emerald-400 flex items-center gap-2">
           <span>FPS: {currentFps}</span>
           <span className="text-zinc-600">|</span>
@@ -893,6 +1058,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           <span className="text-zinc-600">|</span>
           <span className="text-amber-300 capitalize">{playerMovementState}</span>
         </div>
+
+        {/* Live Physical Material & AnimNotify Badge */}
+        {footstepTelemetry && (
+          <div className="px-2.5 py-1 bg-zinc-900/90 border border-amber-500/40 rounded text-[11px] font-mono text-zinc-300 flex items-center gap-2 shadow-lg">
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-[10px]">
+              AN_Footstep_{footstepTelemetry.foot[0]}
+            </span>
+            <span className="text-zinc-300 font-medium">{footstepTelemetry.physMat}</span>
+            <span className="text-zinc-600">|</span>
+            <span className="text-emerald-400">{footstepTelemetry.pitch}x pitch</span>
+          </div>
+        )}
       </div>
 
       {/* Center Cinematic Landmark Discovery Banner */}
@@ -908,17 +1085,180 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         </div>
       )}
 
-      {/* Center Screen Interaction Prompt */}
-      {promptText && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-          <div className="px-4 py-2 bg-zinc-900/95 border border-amber-500/70 rounded-full shadow-2xl flex items-center gap-2.5 animate-pulse">
-            <span className="w-5 h-5 rounded-full bg-amber-500 text-zinc-950 font-bold text-xs flex items-center justify-center font-mono">
-              E
-            </span>
-            <span className="text-xs md:text-sm font-semibold text-zinc-100 tracking-wide">{promptText}</span>
+        {/* Center Screen Interaction Prompt */}
+        {promptText && (
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+            <div className="px-4 py-2 bg-zinc-900/95 border border-amber-500/70 rounded-full shadow-2xl flex items-center gap-2.5 animate-pulse">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-zinc-950 font-bold text-xs flex items-center justify-center font-mono">
+                E
+              </span>
+              <span className="text-xs md:text-sm font-semibold text-zinc-100 tracking-wide">{promptText}</span>
+            </div>
+          </div>
+        )}
+
+      {/* Pointer Lock Notification / Free Look Status Banner */}
+      {isPointerLocked && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+          <div className="px-4 py-1.5 bg-zinc-950/90 border border-emerald-500/60 rounded-full shadow-2xl flex items-center gap-2 text-xs font-mono text-emerald-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span>🎯 Free Mouse Look Active • Move mouse to aim • Press ESC or click Lock button to release</span>
           </div>
         </div>
       )}
+
+      {/* On-Screen Arrow Buttons (D-Pad & Movement Controls) */}
+      <div className="absolute bottom-24 left-4 z-20 flex flex-col items-center gap-2 select-none pointer-events-auto">
+        <div className="p-2.5 bg-zinc-900/90 border border-zinc-800/90 rounded-2xl shadow-2xl flex flex-col items-center gap-1.5">
+          <div className="flex items-center justify-between w-full px-1 text-[9px] font-mono uppercase text-zinc-400 font-bold tracking-wider mb-0.5">
+            <span>Arrow Controls</span>
+            <span className="text-amber-400">{activeKeys['ArrowUp'] || activeKeys['ArrowDown'] || activeKeys['ArrowLeft'] || activeKeys['ArrowRight'] || activeKeys['KeyW'] || activeKeys['KeyS'] || activeKeys['KeyA'] || activeKeys['KeyD'] ? 'Moving' : 'Ready'}</span>
+          </div>
+
+          {/* Up Button (Forward) */}
+          <button
+            onPointerDown={() => setVirtualKey('ArrowUp', true)}
+            onPointerUp={() => setVirtualKey('ArrowUp', false)}
+            onPointerLeave={() => setVirtualKey('ArrowUp', false)}
+            className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center font-bold text-xs transition-all shadow-md cursor-pointer ${
+              activeKeys['ArrowUp'] || activeKeys['KeyW']
+                ? 'bg-amber-500 text-zinc-950 border-amber-300 scale-95 shadow-amber-500/30'
+                : 'bg-zinc-800/90 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+            }`}
+            title="Move Forward (Up Arrow / W)"
+          >
+            <span className="text-base leading-none">▲</span>
+            <span className="text-[8px] font-mono opacity-70">FWD</span>
+          </button>
+
+          {/* Left, Jump, Right Row */}
+          <div className="flex items-center gap-1.5">
+            {/* Left Button */}
+            <button
+              onPointerDown={() => setVirtualKey('ArrowLeft', true)}
+              onPointerUp={() => setVirtualKey('ArrowLeft', false)}
+              onPointerLeave={() => setVirtualKey('ArrowLeft', false)}
+              className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center font-bold text-xs transition-all shadow-md cursor-pointer ${
+                activeKeys['ArrowLeft'] || activeKeys['KeyA']
+                  ? 'bg-amber-500 text-zinc-950 border-amber-300 scale-95 shadow-amber-500/30'
+                  : 'bg-zinc-800/90 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+              }`}
+              title="Move Left (Left Arrow / A)"
+            >
+              <span className="text-base leading-none">◀</span>
+              <span className="text-[8px] font-mono opacity-70">LEFT</span>
+            </button>
+
+            {/* Jump Button (Center) */}
+            <button
+              onPointerDown={() => setVirtualKey('Space', true)}
+              onPointerUp={() => setVirtualKey('Space', false)}
+              onPointerLeave={() => setVirtualKey('Space', false)}
+              className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center font-mono text-[9px] font-bold transition-all shadow-md cursor-pointer ${
+                activeKeys['Space']
+                  ? 'bg-emerald-500 text-zinc-950 border-emerald-300 scale-95 shadow-emerald-500/30'
+                  : 'bg-zinc-950 text-zinc-300 border-zinc-700 hover:bg-zinc-800'
+              }`}
+              title="Jump (Spacebar)"
+            >
+              <span className="text-xs">⏫</span>
+              <span className="text-[8px] opacity-80">JUMP</span>
+            </button>
+
+            {/* Right Button */}
+            <button
+              onPointerDown={() => setVirtualKey('ArrowRight', true)}
+              onPointerUp={() => setVirtualKey('ArrowRight', false)}
+              onPointerLeave={() => setVirtualKey('ArrowRight', false)}
+              className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center font-bold text-xs transition-all shadow-md cursor-pointer ${
+                activeKeys['ArrowRight'] || activeKeys['KeyD']
+                  ? 'bg-amber-500 text-zinc-950 border-amber-300 scale-95 shadow-amber-500/30'
+                  : 'bg-zinc-800/90 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+              }`}
+              title="Move Right (Right Arrow / D)"
+            >
+              <span className="text-base leading-none">▶</span>
+              <span className="text-[8px] font-mono opacity-70">RIGHT</span>
+            </button>
+          </div>
+
+          {/* Down Button (Backward) */}
+          <button
+            onPointerDown={() => setVirtualKey('ArrowDown', true)}
+            onPointerUp={() => setVirtualKey('ArrowDown', false)}
+            onPointerLeave={() => setVirtualKey('ArrowDown', false)}
+            className={`w-11 h-11 rounded-xl border flex flex-col items-center justify-center font-bold text-xs transition-all shadow-md cursor-pointer ${
+              activeKeys['ArrowDown'] || activeKeys['KeyS']
+                ? 'bg-amber-500 text-zinc-950 border-amber-300 scale-95 shadow-amber-500/30'
+                : 'bg-zinc-800/90 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+            }`}
+            title="Move Backward (Down Arrow / S)"
+          >
+            <span className="text-base leading-none">▼</span>
+            <span className="text-[8px] font-mono opacity-70">BACK</span>
+          </button>
+        </div>
+
+        {/* Quick Action Badges: Sprint & Mouse Look */}
+        <div className="flex items-center gap-1.5 w-full">
+          <button
+            onPointerDown={() => setVirtualKey('ShiftLeft', true)}
+            onPointerUp={() => setVirtualKey('ShiftLeft', false)}
+            onPointerLeave={() => setVirtualKey('ShiftLeft', false)}
+            className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-mono font-semibold transition-all cursor-pointer shadow text-center ${
+              activeKeys['ShiftLeft'] || activeKeys['ShiftRight']
+                ? 'bg-amber-500 text-zinc-950 border-amber-300'
+                : 'bg-zinc-900/90 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
+            }`}
+          >
+            ⚡ Sprint
+          </button>
+
+          <button
+            onClick={togglePointerLock}
+            className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-mono font-semibold transition-all cursor-pointer shadow text-center flex items-center justify-center gap-1 ${
+              isPointerLocked
+                ? 'bg-emerald-600 text-white border-emerald-400'
+                : 'bg-zinc-900/90 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
+            }`}
+            title="Toggle Seamless Mouse Look (or Click Canvas)"
+          >
+            <span>{isPointerLocked ? '🎯 Locked' : '🎯 Free Look'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Camera Rotate Buttons on bottom right */}
+      <div className="absolute bottom-24 right-4 z-20 flex flex-col items-end gap-1.5 pointer-events-auto">
+        <div className="flex items-center gap-1.5 p-1.5 bg-zinc-900/90 border border-zinc-800 rounded-xl shadow-lg">
+          <button
+            onPointerDown={() => setVirtualKey('CamLeft', true)}
+            onPointerUp={() => setVirtualKey('CamLeft', false)}
+            onPointerLeave={() => setVirtualKey('CamLeft', false)}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-all cursor-pointer flex items-center gap-1 ${
+              activeKeys['CamLeft'] || activeKeys['KeyQ']
+                ? 'bg-amber-500 text-zinc-950 border-amber-400'
+                : 'bg-zinc-800 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+            }`}
+            title="Orbit Camera Left (Q)"
+          >
+            <span>↺ Cam Left (Q)</span>
+          </button>
+          <button
+            onPointerDown={() => setVirtualKey('CamRight', true)}
+            onPointerUp={() => setVirtualKey('CamRight', false)}
+            onPointerLeave={() => setVirtualKey('CamRight', false)}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-all cursor-pointer flex items-center gap-1 ${
+              activeKeys['CamRight'] || activeKeys['KeyE_Cam']
+                ? 'bg-amber-500 text-zinc-950 border-amber-400'
+                : 'bg-zinc-800 text-zinc-200 border-zinc-700 hover:bg-zinc-700'
+            }`}
+            title="Orbit Camera Right (E)"
+          >
+            <span>Cam Right (E) ↻</span>
+          </button>
+        </div>
+      </div>
 
       {/* Three.js Skill Mandated: Unified Collapsible Bottom Dock (Zero Viewport Occlusion) */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-4xl transition-all duration-300">
@@ -938,8 +1278,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             {/* Left: Quick Controls Guide */}
             <div className="flex items-center gap-3 text-zinc-400">
               <div className="flex items-center gap-1">
-                <span className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-zinc-200">WASD</span>
-                <span className="text-[11px]">Move</span>
+                <span className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-amber-400 font-semibold">WASD / Arrows</span>
+                <span className="text-[11px]">Move (Fwd/Back/Side)</span>
               </div>
               <div className="flex items-center gap-1">
                 <span className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-zinc-200">Shift</span>
@@ -950,8 +1290,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 <span className="text-[11px]">Jump</span>
               </div>
               <div className="flex items-center gap-1">
-                <span className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-zinc-200">Drag Mouse</span>
-                <span className="text-[11px]">Orbit Cam</span>
+                <span className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-emerald-400">Mouse Look</span>
+                <span className="text-[11px]">{isPointerLocked ? 'Free Aim' : 'Drag / Click 🎯'}</span>
               </div>
             </div>
 

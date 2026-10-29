@@ -26,36 +26,147 @@ class SoundManager {
     return this.isMuted;
   }
 
-  // Play a soft natural footstep (grass / stone crunch)
-  public playFootstep(isSprinting: boolean = false) {
+  // Surface-specific randomized footstep synthesizer (Grass, Stone, Water, Wood)
+  public playSurfaceFootstep(
+    surface: 'Grass' | 'Stone' | 'Water' | 'Wood' = 'Grass',
+    isSprinting: boolean = false,
+    foot: 'Left' | 'Right' = 'Left'
+  ) {
     if (this.isMuted) return;
     try {
       this.initCtx();
       if (!this.ctx) return;
 
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
+      const t = this.ctx.currentTime;
+      // Procedural pitch and volume jitter (analogous to UE5 MetaSound / SoundCue randomizer)
+      const pitchJitter = 0.92 + Math.random() * 0.16; // ±8% pitch variation
+      const volJitter = 0.90 + Math.random() * 0.15;
+      const baseVol = (isSprinting ? 0.08 : 0.05) * volJitter;
+      const footPitchMod = foot === 'Left' ? 1.0 : 0.96; // subtle left/right asymmetry
 
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(isSprinting ? 80 : 65, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.08);
+      if (surface === 'Stone') {
+        // CRISP GRANITE / RUINS CLICK + SLIGHT RESONANCE
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
 
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(400, this.ctx.currentTime);
+        osc.type = 'triangle';
+        const startFreq = (isSprinting ? 280 : 220) * pitchJitter * footPitchMod;
+        osc.frequency.setValueAtTime(startFreq, t);
+        osc.frequency.exponentialRampToValueAtTime(80, t + 0.06);
 
-      gain.gain.setValueAtTime(0.04, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(160, t);
 
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.ctx.destination);
+        gain.gain.setValueAtTime(baseVol * 1.2, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
 
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.09);
+        // Stone tap noise transient
+        const noiseBuf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 0.03), this.ctx.sampleRate);
+        const noiseData = noiseBuf.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) {
+          noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / 150);
+        }
+        const noiseSrc = this.ctx.createBufferSource();
+        noiseSrc.buffer = noiseBuf;
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(baseVol * 0.8, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noiseSrc.connect(noiseGain);
+        noiseGain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.08);
+        noiseSrc.start(t);
+        noiseSrc.stop(t + 0.04);
+      } else if (surface === 'Water') {
+        // LIQUID SPLASH + DROPLET TRANSIENT
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(450 * pitchJitter, t);
+        osc.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+
+        gain.gain.setValueAtTime(baseVol * 0.7, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+
+        const noiseBuf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 0.1), this.ctx.sampleRate);
+        const noiseData = noiseBuf.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) {
+          noiseData[i] = (Math.random() * 2 - 1) * (1 - i / noiseData.length);
+        }
+        const noiseSrc = this.ctx.createBufferSource();
+        noiseSrc.buffer = noiseBuf;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1100 * pitchJitter, t);
+        filter.Q.setValueAtTime(2.0, t);
+
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(baseVol * 0.9, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        noiseSrc.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.14);
+        noiseSrc.start(t);
+        noiseSrc.stop(t + 0.12);
+      } else if (surface === 'Wood') {
+        // HOLLOW WOODEN THUD
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180 * pitchJitter * footPitchMod, t);
+        osc.frequency.exponentialRampToValueAtTime(70, t + 0.09);
+
+        gain.gain.setValueAtTime(baseVol * 1.1, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.11);
+      } else {
+        // SOFT FOREST GRASS / DAMP EARTH CRUNCH
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+
+        osc.type = 'triangle';
+        const startFreq = (isSprinting ? 95 : 75) * pitchJitter * footPitchMod;
+        osc.frequency.setValueAtTime(startFreq, t);
+        osc.frequency.exponentialRampToValueAtTime(35, t + 0.08);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(380 * pitchJitter, t);
+
+        gain.gain.setValueAtTime(baseVol, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.1);
+      }
     } catch {
       // AudioContext policy fallback
     }
+  }
+
+  // Play a soft natural footstep (compatibility fallback)
+  public playFootstep(isSprinting: boolean = false) {
+    this.playSurfaceFootstep('Grass', isSprinting, 'Left');
   }
 
   // Play an ethereal mystical relic chime when interacting with an ancient artifact
