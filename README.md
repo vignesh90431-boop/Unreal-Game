@@ -29,7 +29,7 @@
 
 <br/>
 
-### 🧭 &nbsp; [✨ Features](#-features) • [📸 Screenshots](#-screenshots) • [🕹️ Controls](#️-controls) • [🚀 Quick Start](#-quick-start) • [🧩 Blueprints](#-blueprint-studio) • [📊 Hardware Lab](#-hardware-scalability-lab) • [🗺️ Roadmap](#️-roadmap)
+### 🧭 &nbsp; [✨ Features](#-features) • [🕹️ Controls](#️-controls) • [🚀 Quick Start](#-quick-start) • [🧩 Blueprints](#-blueprint-studio) • [📊 Hardware Lab](#-hardware-scalability-lab) • [🗺️ Roadmap](#️-roadmap)
 
 </div>
 
@@ -39,7 +39,7 @@
 
 **WILDLANDS: THE LOST KINGDOM** is a web app that acts as a production companion for building a realistic, cinematic, third-person open-world adventure in **Unreal Engine 5 using Blueprints only**.
 
-You play an explorer in a mysterious ancient kingdom reclaimed by nature, finding ruins, artifacts and the clues of a vanished civilization. The app gives you three tools in one:
+This is a **treasure hunt** at heart: you play an explorer in a mysterious ancient kingdom reclaimed by nature, tracking down the Sunstone of Eldoria, hidden chests and the clues of a vanished civilization. The app gives you three tools in one:
 
 <div align="center">
 
@@ -51,29 +51,6 @@ You play an explorer in a mysterious ancient kingdom reclaimed by nature, findin
 
 > [!TIP]
 > Created as a **beginner-friendly** path from an empty UE5 project to a polished playable prototype, then toward a 4K package.
-
----
-
-## 📸 Screenshots
-
-> [!NOTE]
-> Add your captures to `docs/screenshots/` using these file names.
-
-<div align="center">
-
-<img src="docs/screenshots/gameplay.png" alt="Valley gameplay" width="48%"/> <img src="docs/screenshots/blueprint-studio.png" alt="Blueprint Studio" width="48%"/>
-
-![gp](https://img.shields.io/badge/🎮_Wildlands_Engine_Preview-38EF7D?style=for-the-badge&labelColor=1a1a1a) ![bp](https://img.shields.io/badge/🧩_Blueprint_Studio-0A84FF?style=for-the-badge&labelColor=1a1a1a)
-
-<img src="docs/screenshots/inventory.png" alt="3D inventory inspector" width="48%"/> <img src="docs/screenshots/hardware-lab.png" alt="Hardware Lab" width="48%"/>
-
-![inv](https://img.shields.io/badge/🎒_3D_Artifact_Inspector-A855F7?style=for-the-badge&labelColor=1a1a1a) ![hw](https://img.shields.io/badge/📊_Hardware_Profiler-F59E0B?style=for-the-badge&labelColor=1a1a1a)
-
-<img src="docs/screenshots/dialogue.png" alt="Elder Thorne dialogue" width="48%"/> <img src="docs/screenshots/roadmap.png" alt="Production roadmap" width="48%"/>
-
-![dlg](https://img.shields.io/badge/💬_Elder_Thorne_Dialogue-EC4899?style=for-the-badge&labelColor=1a1a1a) ![rm](https://img.shields.io/badge/🗺️_Production_Roadmap-14B8A6?style=for-the-badge&labelColor=1a1a1a)
-
-</div>
 
 ---
 
@@ -180,8 +157,8 @@ Movement is camera-relative: forward always moves away from the camera, and diag
 
 ```bash
 # 1. Clone
-git clone https://github.com/<your-username>/wildlands-the-lost-kingdom.git
-cd wildlands-the-lost-kingdom
+git clone https://github.com/vignesh90431-boop/Unreal-Game.git
+cd Unreal-Game
 
 # 2. Install
 npm install          # or: bun install
@@ -289,31 +266,17 @@ profilegpu     # Single-frame GPU capture
 <summary><b>📂 Click to expand</b></summary>
 
 ```text
-wildlands-the-lost-kingdom/
+Unreal-Game/
+├── src/                    # React + Three.js application source
+├── .env.example            # GEMINI_API_KEY, APP_URL
+├── .gitignore
+├── README.md
+├── bun.lock
 ├── index.html              # Entry page (Cinzel, JetBrains Mono, Plus Jakarta Sans)
 ├── metadata.json           # AI Studio app metadata
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts          # React + Tailwind plugins, "@" alias
-├── .env.example            # GEMINI_API_KEY, APP_URL
-├── .gitignore
-└── src/
-    ├── main.tsx
-    ├── App.tsx
-    ├── types/game.ts
-    ├── utils/audio.ts
-    ├── data/
-    │   ├── blueprintData.ts
-    │   ├── hardwareData.ts
-    │   └── roadmapData.ts
-    └── components/
-        ├── game3d/         # GameCanvas.tsx, textures.ts
-        ├── blueprints/     # BlueprintEditor.tsx
-        ├── hardware/       # HardwareProfiler.tsx
-        ├── roadmap/        # ProductionRoadmap.tsx
-        ├── inventory/      # ItemInspectorModal.tsx
-        ├── dialogue/       # DialogueModal.tsx
-        └── journal/        # JournalModal.tsx
+└── vite.config.ts          # React + Tailwind plugins, "@" alias
 ```
 
 </details>
@@ -348,18 +311,14 @@ wildlands-the-lost-kingdom/
 
 All story, characters, locations and quests are **original**. Use only properly licensed assets in your Unreal project. Unreal Engine is a trademark of Epic Games, Inc.; this project is not affiliated with or endorsed by Epic Games or NVIDIA.
 
-## 📄 License
-
-Distributed under the **MIT License**. See `LICENSE`.
-
 <div align="center">
 
 <br/>
 
-![Stars](https://img.shields.io/github/stars/your-username/wildlands-the-lost-kingdom?style=for-the-badge&color=F59E0B&labelColor=1a1a1a)
-![Forks](https://img.shields.io/github/forks/your-username/wildlands-the-lost-kingdom?style=for-the-badge&color=38EF7D&labelColor=1a1a1a)
-![Issues](https://img.shields.io/github/issues/your-username/wildlands-the-lost-kingdom?style=for-the-badge&color=EF4444&labelColor=1a1a1a)
-![Last Commit](https://img.shields.io/github/last-commit/your-username/wildlands-the-lost-kingdom?style=for-the-badge&color=0A84FF&labelColor=1a1a1a)
+![Stars](https://img.shields.io/github/stars/vignesh90431-boop/Unreal-Game?style=for-the-badge&color=F59E0B&labelColor=1a1a1a)
+![Forks](https://img.shields.io/github/forks/vignesh90431-boop/Unreal-Game?style=for-the-badge&color=38EF7D&labelColor=1a1a1a)
+![Issues](https://img.shields.io/github/issues/vignesh90431-boop/Unreal-Game?style=for-the-badge&color=EF4444&labelColor=1a1a1a)
+![Last Commit](https://img.shields.io/github/last-commit/vignesh90431-boop/Unreal-Game?style=for-the-badge&color=0A84FF&labelColor=1a1a1a)
 
 ### ⭐ If this helps you build your game, give it a star! ⭐
 
